@@ -69,6 +69,10 @@ resource "aws_key_pair" "master_key" {
 resource "local_file" "master_key_file" {
   content  = tls_private_key.master_key.private_key_pem
   filename = "${path.module}/k8s-master-key.pem"
+
+  provisioner "local-exec" {
+    command = "chmod 400 ${path.module}/k8s-master-key.pem"
+  }
 }
 
 # 마스터 노드 보안 그룹
@@ -213,6 +217,10 @@ resource "aws_key_pair" "kubespray_key" {
 resource "local_file" "kubespray_key_file" {
   content  = tls_private_key.kubespray_key.private_key_pem
   filename = "${path.module}/kubespray-key.pem"
+
+  provisioner "local-exec" {
+    command = "chmod 400 ${path.module}/kubespray-key.pem"
+  }
 }
 
 # Kubespray 인스턴스용 보안 그룹
