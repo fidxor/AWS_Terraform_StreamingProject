@@ -19,6 +19,7 @@ crash.*.log
 
 # no creds
 *.pem
+*.pem.pub
 
 # Ignore override files as they are usually used to override resources locally and so
 # are not checked in
@@ -36,3 +37,6 @@ override.tf.json
 # Ignore CLI configuration files
 .terraformrc
 terraform.rc
+
+# no backup file
+*.bak
