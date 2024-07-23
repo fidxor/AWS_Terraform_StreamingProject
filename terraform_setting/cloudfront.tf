@@ -63,24 +63,3 @@ resource "aws_cloudfront_distribution" "nono_distribution" {
 resource "aws_cloudfront_origin_access_identity" "nono_oai" {
   comment = "OAI for nonooutput S3 bucket"
 }
-
-# S3 버킷 정책 업데이트 (nonooutput 버킷)
-resource "aws_s3_bucket_policy" "nonooutput_ca_central_1_policy" {
-  provider = aws.ca-central-1  # ca-central-1 리전의 프로바이더 사용
-  bucket = aws_s3_bucket.nonooutput_ca_central_1.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid       = "AllowCloudFrontOAI"
-        Effect    = "Allow"
-        Principal = {
-          AWS = aws_cloudfront_origin_access_identity.nono_oai.iam_arn
-        }
-        Action   = "s3:GetObject"
-        Resource = "${aws_s3_bucket.nonooutput_ca_central_1.arn}/*"
-      }
-    ]
-  })
-}

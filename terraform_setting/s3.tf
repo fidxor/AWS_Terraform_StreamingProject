@@ -251,3 +251,52 @@ resource "aws_s3_bucket_cors_configuration" "bucket_cors_us_east_1" {
     max_age_seconds = 3000
   }
 }
+
+# CloudFront OAI
+data "aws_cloudfront_origin_access_identity" "nono_oai" {
+  id = aws_cloudfront_origin_access_identity.nono_oai.id
+}
+
+# 버킷 정책 함수
+locals {
+  s3_origin_id = "nonooutput-origin"
+  cloudfront_oai_iam_arn = data.aws_cloudfront_origin_access_identity.nono_oai.iam_arn
+
+  bucket_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "AllowCloudFrontServicePrincipal"
+        Effect    = "Allow"
+        Principal = {
+          AWS = local.cloudfront_oai_iam_arn
+        }
+        Action   = "s3:GetObject"
+        Resource = "%s/*"
+      }
+    ]
+  })
+}
+
+# 버킷 정책 적용
+resource "aws_s3_bucket_policy" "cloudfront_access_policy" {
+  for_each = {
+    nonooutput                = aws_s3_bucket.nonooutput.arn
+    nonooutput-ap-northeast-2 = aws_s3_bucket.nonooutput_ap_northeast_2.arn
+  }
+  
+  bucket = each.key
+  policy = format(local.bucket_policy, each.value)
+}
+
+resource "aws_s3_bucket_policy" "cloudfront_access_policy_ca_central_1" {
+  provider = aws.ca-central-1
+  bucket   = aws_s3_bucket.nonooutput_ca_central_1.id
+  policy   = format(local.bucket_policy, aws_s3_bucket.nonooutput_ca_central_1.arn)
+}
+
+resource "aws_s3_bucket_policy" "cloudfront_access_policy_us_east_1" {
+  provider = aws.us-east-1
+  bucket   = aws_s3_bucket.nonooutput_us_east_1.id
+  policy   = format(local.bucket_policy, aws_s3_bucket.nonooutput_us_east_1.arn)
+}
