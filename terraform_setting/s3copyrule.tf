@@ -10,17 +10,14 @@ locals {
   replication_rules = [
     {
       id     = "nonooutput-to-ap-northeast-2"
-      prefix = "ap-northeast-2/"
       destination_bucket = aws_s3_bucket.nonooutput_ap_northeast_2.arn
     },
     {
       id     = "nonooutput-to-ca-central-1"
-      prefix = "ca-central-1/"
       destination_bucket = aws_s3_bucket.nonooutput_ca_central_1.arn
     },
     {
       id     = "nonooutput-to-us-east-1"
-      prefix = "us-east-1/"
       destination_bucket = aws_s3_bucket.nonooutput_us_east_1.arn
     }
   ]
@@ -128,11 +125,10 @@ resource "aws_s3_bucket_replication_configuration" "nonooutput_replication" {
     content {
       id       = rule.value.id
       status   = "Enabled"
-      priority = index(local.replication_rules, rule.value) + 1  # 우선순위 추가
+      priority = index(local.replication_rules, rule.value) + 1
 
-      filter {
-        prefix = rule.value.prefix
-      }
+      # 빈 filter 블록을 사용하여 모든 객체에 적용
+      filter {}
 
       delete_marker_replication {
         status = "Enabled"
