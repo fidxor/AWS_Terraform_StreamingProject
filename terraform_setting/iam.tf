@@ -185,3 +185,53 @@ resource "aws_iam_role_policy" "lambda_vod_execution_policy" {
   }
 }
 
+#신규 만든 코드
+
+
+# 버킷 버전 관리 활성화
+resource "aws_s3_bucket_versioning" "nonooutput_ap_northeast_2" {
+  bucket = aws_s3_bucket.nonooutput_ap_northeast_2.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "nonooutput_us_east_1" {
+  provider = aws.us-east-1
+  bucket = aws_s3_bucket.nonooutput_us_east_1.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "nonooutput_ca_central_1" {
+  provider = aws.ca-central-1
+  bucket = aws_s3_bucket.nonooutput_ca_central_1.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+#신규 추가한 정책
+resource "aws_s3_bucket_policy" "allow_replication" {
+  bucket = aws_s3_bucket.nonooutput_ap_northeast_2.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowReplication"
+        Effect = "Allow"
+        Principal = {
+          AWS = aws_iam_role.replication.arn
+        }
+        Action = [
+          "s3:ReplicateObject",
+          "s3:ReplicateDelete",
+          "s3:ReplicateTags",
+          "s3:GetObjectVersionTagging"
+        ]
+        Resource = "${aws_s3_bucket.nonooutput_ap_northeast_2.arn}/*"
+      }
+    ]
+  })
+}
