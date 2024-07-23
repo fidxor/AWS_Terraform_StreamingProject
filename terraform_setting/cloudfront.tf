@@ -1,8 +1,14 @@
 resource "aws_cloudfront_distribution" "nono_distribution" {
   enabled             = true
   is_ipv6_enabled     = true
-  price_class         = "PriceClass_All"
   http_version        = "http2"
+  price_class         = "PriceClass_All"
+
+  depends_on = [
+    aws_lambda_function.create_mediaconvert_job,
+    aws_s3_bucket.nonooutput,
+    aws_s3_bucket.nonooutput_ca_central_1
+  ]
 
   origin {
     domain_name = "nonooutput.s3.ap-northeast-2.amazonaws.com"
@@ -50,6 +56,8 @@ resource "aws_cloudfront_distribution" "nono_distribution" {
   viewer_certificate {
     cloudfront_default_certificate = true
   }
+
+  web_acl_id = null # WAF 비활성화
 }
 
 resource "aws_cloudfront_origin_access_identity" "nono_oai" {
@@ -57,28 +65,9 @@ resource "aws_cloudfront_origin_access_identity" "nono_oai" {
 }
 
 # S3 버킷 정책 업데이트 (nonooutput 버킷)
-resource "aws_s3_bucket_policy" "nonooutput_policy" {
-  bucket = "nonooutput"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid       = "AllowCloudFrontOAI"
-        Effect    = "Allow"
-        Principal = {
-          AWS = aws_cloudfront_origin_access_identity.nono_oai.iam_arn
-        }
-        Action   = "s3:GetObject"
-        Resource = "arn:aws:s3:::nonooutput/*"
-      }
-    ]
-  })
-}
-
-# S3 버킷 정책 업데이트 (nonooutput-ca-central-1 버킷)
 resource "aws_s3_bucket_policy" "nonooutput_ca_central_1_policy" {
-  bucket = "nonooutput-ca-central-1"
+  provider = aws.ca-central-1  # ca-central-1 리전의 프로바이더 사용
+  bucket = aws_s3_bucket.nonooutput_ca_central_1.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -90,7 +79,7 @@ resource "aws_s3_bucket_policy" "nonooutput_ca_central_1_policy" {
           AWS = aws_cloudfront_origin_access_identity.nono_oai.iam_arn
         }
         Action   = "s3:GetObject"
-        Resource = "arn:aws:s3:::nonooutput-ca-central-1/*"
+        Resource = "${aws_s3_bucket.nonooutput_ca_central_1.arn}/*"
       }
     ]
   })
