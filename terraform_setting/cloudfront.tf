@@ -28,6 +28,25 @@ resource "aws_cloudfront_distribution" "nono_distribution" {
     }
   }
 
+#07.24 추가 내용 [원본 도메인 서울리전, 미국리전 추가]
+  origin {
+    domain_name = "nonooutput-us-east-1.s3.us-east-1.amazonaws.com"
+    origin_id   = "nonooutput-us-east-1-origin"
+
+    s3_origin_config {
+      origin_access_identity = aws_cloudfront_origin_access_identity.nono_oai.cloudfront_access_identity_path
+    }
+  }
+
+  origin {
+    domain_name = "nonooutput-ap-northeast-2.s3.ap-northeast-2.amazonaws.com"
+    origin_id   = "nonooutput-ap-northeast-2-origin"
+
+    s3_origin_config {
+      origin_access_identity = aws_cloudfront_origin_access_identity.nono_oai.cloudfront_access_identity_path
+    }
+  }
+
   default_cache_behavior {
     allowed_methods  = ["GET", "HEAD"]
     cached_methods   = ["GET", "HEAD"]
