@@ -1,6 +1,16 @@
 # Configure the AWS Provider
 provider "aws" {
-  region = "ap-northeast-2"  # 서울 리전
+  region = "ap-northeast-2" # 서울 리전
+}
+
+provider "aws" {
+  alias  = "us-east-1"
+  region = "us-east-1"
+}
+
+provider "aws" {
+  alias  = "ca-central-1"
+  region = "ca-central-1"
 }
 
 # 키 페어 생성
@@ -64,7 +74,7 @@ resource "aws_security_group" "kubernetes_sg" {
 
 # kops용 S3 버킷 생성
 resource "aws_s3_bucket" "my_bucket" {
-  bucket = "24kng-kops-bucket"  # Replace with your desired bucket name
+  bucket        = "24kng-kops-bucket" # Replace with your desired bucket name
   force_destroy = true
 }
 
@@ -145,7 +155,7 @@ resource "aws_instance" "kops_instance" {
   instance_type          = "t2.medium"
   vpc_security_group_ids = [aws_security_group.kubernetes_sg.id]
   iam_instance_profile   = aws_iam_instance_profile.kops_profile.name
-  
+
   tags = {
     Name = "kops-instance"
   }

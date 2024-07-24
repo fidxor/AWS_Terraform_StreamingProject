@@ -214,6 +214,8 @@ cat <<EOF > /home/ubuntu/ansible/deploy_argocd.yml
 - name: Install ArgoCD on existing Kubernetes cluster
   hosts: all
   become: yes
+  vars:
+    slack_webhook_url : "https://hooks.slack.com/services/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"
   tasks:
     - name: Update apt cache
       apt:
@@ -322,6 +324,14 @@ cat <<EOF > /home/ubuntu/ansible/deploy_argocd.yml
       retries: 30
       delay: 20
 
+    - name: Get ArgoCD server external IP
+      shell: kubectl get svc argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+      register: argocd_external_ip_result
+
+    - name: Set ArgoCD external IP fact
+      set_fact:
+        argocd_external_ip: "{{ argocd_external_ip_result.stdout }}"
+
     - name: Get ArgoCD admin password
       shell: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
       register: argocd_password
@@ -329,8 +339,20 @@ cat <<EOF > /home/ubuntu/ansible/deploy_argocd.yml
     - name: Display ArgoCD access information
       debug:
         msg:
-          - "ArgoCD is accessible at: http://{{ lb_service.resources[0].status.loadBalancer.ingress[0].hostname }}"
+          - "ArgoCD is accessible at: http://{{ argocd_external_ip }}"
           - "Initial admin password: {{ argocd_password.stdout }}"
+
+    - name: Send Slack notification
+      uri:
+        url: "{{ slack_webhook_url }}"
+        method: POST
+        body_format: json
+        body:
+          text: |
+            ArgoCD has been successfully deployed!
+            Access URL: http://{{ argocd_external_ip }}
+            Initial admin password: {{ argocd_password.stdout }}
+      when: inventory_hostname in groups['kube_control_plane'] and argocd_access_url is defined
 EOF
 
 # 인벤토리 파일 내용 출력
