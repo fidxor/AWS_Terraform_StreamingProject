@@ -1,0 +1,196 @@
+opentelemetrycollector:
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.105.0"
+  mode: daemonset
+  config:
+    receivers:
+      filelog:
+        include:
+          - /var/log/nginx/access.log
+          - /var/log/nginx/error.log
+          - /var/log/containers/*.log
+          - /var/log/pods/*/*.log
+          - /var/log/aws-routed-eni/*.log
+          - /var/log/auth.log
+        start_at: beginning
+      
+      hostmetrics:
+        collection_interval: 10s
+        scrapers:
+          cpu: {}
+          load: {}
+          memory: {}
+          disk: {}
+          filesystem: {}
+          network: {}
+      
+      otlp:
+        protocols:
+          grpc: {}
+          http: {}
+
+    processors:
+      batch: {}
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 1000
+        spike_limit_mib: 200
+      
+      attributes:
+        actions:
+          - key: http.status_code
+            from_attribute: http.status_code
+            action: extract
+
+    exporters:
+      file:
+        path: /var/log/otel-collected/collected-logs.json
+      
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+      
+      otlp:
+        endpoint: "loki:3100"
+        tls:
+          insecure: true
+
+      logging:
+        loglevel: debug
+
+    extensions:
+      health_check: {}
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp, file, logging]
+        metrics:
+          receivers: [hostmetrics, otlp]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus, file, logging]
+        logs:
+          receivers: [filelog]
+          processors: [attributes, batch]
+          exporters: [otlp, file, logging]
+
+  extraEnvs:
+    - name: K8S_NODE_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+
+  extraVolumeMounts:
+    - name: rootfs
+      mountPath: /rootfs
+      readOnly: true
+    - name: disk
+      mountPath: /hostfs/dev/disk
+      readOnly: true
+    - name: sys
+      mountPath: /hostfs/sys
+      readOnly: true
+    - name: proc
+      mountPath: /hostfs/proc
+      readOnly: true
+    - name: nginx-logs
+      mountPath: /var/log/nginx
+      readOnly: true
+    - name: app-logs
+      mountPath: /var/log/app
+      readOnly: true
+    - name: collected-logs
+      mountPath: /var/log/otel-collected
+
+  extraVolumes:
+    - name: rootfs
+      hostPath:
+        path: /
+    - name: disk
+      hostPath:
+        path: /dev/disk
+    - name: sys
+      hostPath:
+        path: /sys
+    - name: proc
+      hostPath:
+        path: /proc
+    - name: nginx-logs
+      hostPath:
+        path: /var/log/nginx
+    - name: app-logs
+      hostPath:
+        path: /var/log/app
+    - name: collected-logs
+      hostPath:
+        path: /var/log/otel-collected
+        type: DirectoryOrCreate
+
+grafana:
+  adminUser: admin
+  adminPassword: admin  # 원하는 비밀번호로 변경하세요
+  persistence:
+    type: pvc
+    enabled: true
+    storageClassName: standard
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+  service:
+    type: ClusterIP
+  plugins:
+    - grafana-piechart-panel
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://{{ .Release.Name }}-prometheus-server
+          access: proxy
+          isDefault: true
+        - name: Loki
+          type: loki
+          url: http://loki:3100
+          access: proxy
+  dashboards:
+  default:
+    prometheus-stats:
+      gnetId: 2
+      revision: 2
+      datasource: Prometheus
+    node-exporter:
+      gnetId: 1860
+      revision: 21
+      datasource: Prometheus
+
+prometheus:
+  server:
+    global:
+      scrape_interval: 15s
+  extraScrapeConfigs: |
+    - job_name: 'opentelemetry-collector'
+      kubernetes_sd_configs:
+        - role: endpoints
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_service_name]
+          regex: '.*opentelemetrycollector.*'
+          action: keep
+        - source_labels: [__meta_kubernetes_pod_container_port_number]
+          regex: '8889'
+          action: keep
