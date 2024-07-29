@@ -166,26 +166,17 @@ resource "aws_instance" "kops_instance" {
     volume_size = 20
   }
 
-  provisioner "file" {
-    source      = "${path.module}/cluster-autoscaler.sh"
-    destination = "/home/ubuntu/cluster-autoscaler.sh"
-
-    connection {
-      type        = "ssh"
-      user        = "ubuntu"
-      private_key = tls_private_key.kops_ssh_key.private_key_pem
-      host        = self.public_ip
-    }
-  }
-
   # user_data 크기 이슈로 압축
-  user_data = base64gzip(
-    templatefile("${path.module}/kops_script.sh", {
+  user_data = base64gzip(<<-EOF
+    #!/bin/bash
+    exec > >(tee /home/ubuntu/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+    ${templatefile("${path.module}/kops_script.sh", {
       s3bucketname      = aws_s3_bucket.my_bucket.bucket
       public_key        = tls_private_key.kops_ssh_key.public_key_openssh
       private_key       = tls_private_key.kops_ssh_key.private_key_pem
       slack_webhook_url = var.slack_webhook_url
-    })
+    })}
+  EOF
   )
 
   user_data_replace_on_change = true
