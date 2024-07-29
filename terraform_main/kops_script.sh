@@ -3,6 +3,7 @@ export AWS_DEFAULT_REGION=ap-northeast-2
 
 apt-get update
 apt-get install -y awscli
+apt-get install python3-pip
 
 # kops 설치
 curl -LO https://github.com/kubernetes/kops/releases/download/$(curl -s https://api.github.com/repos/kubernetes/kops/releases/latest | grep tag_name | cut -d '"' -f 4)/kops-linux-amd64
@@ -35,6 +36,8 @@ chown ubuntu:ubuntu /home/ubuntu/kops_private_key.pem
 echo "export NAME=mycluster.k8s.local" >> /home/ubuntu/.bashrc
 echo "export KOPS_STATE_STORE=s3://${s3bucketname}" >> /home/ubuntu/.bashrc
 echo "export KUBECONFIG=/home/ubuntu/.kube/config" >> /home/ubuntu/.bashrc
+echo "export SLACK_WEBHOOK_URL='${slack_webhook_url}'" >> /home/ubuntu/.bashrc
+echo "export SLACK_WEBHOOK_URL='${slack_webhook_url}'" >> /etc/environment
 echo "NAME=mycluster.k8s.local" >> /etc/environment
 echo "KOPS_STATE_STORE=s3://${s3bucketname}" >> /etc/environment
 echo "export KUBECONFIG=/home/ubuntu/.kube/config" >> /etc/environment
@@ -46,10 +49,12 @@ chown ubuntu:ubuntu /home/ubuntu/.bashrc
 export NAME=mycluster.k8s.local
 export KOPS_STATE_STORE=s3://${s3bucketname}
 export AWS_DEFAULT_REGION=ap-northeast-2
+export SLACK_WEBHOOK_URL=${slack_webhook_url}
 echo "export NAME=mycluster.k8s.local" >> /etc/profile
 echo "export KOPS_STATE_STORE=s3://${s3bucketname}" >> /etc/profile
 echo "export AWS_DEFAULT_REGION=ap-northeast-2" >> /etc/profile
 echo "export KUBECONFIG=/home/ubuntu/.kube/config" >> /etc/profile
+echo "export SLACK_WEBHOOK_URL='${slack_webhook_url}'" >> /etc/profile
 source /etc/profile
 
 # 새로운 프로세스에서도 환경 변수를 사용할 수 있도록 설정
@@ -57,6 +62,7 @@ echo "NAME=mycluster.k8s.local" >> /etc/environment
 echo "KOPS_STATE_STORE=s3://${s3bucketname}" >> /etc/environment
 echo "AWS_DEFAULT_REGION=ap-northeast-2" >> /etc/environment
 echo "KUBECONFIG=/home/ubuntu/.kube/config" >> /etc/environment
+echo "SLACK_WEBHOOK_URL='${slack_webhook_url}'" >> /etc/environment
 
 # PAM 설정을 통해 환경 변수를 즉시 로드
 sed -i '/^session\s*required\s*pam_env.so/s/^/#/' /etc/pam.d/common-session
@@ -215,7 +221,7 @@ cat <<EOF > /home/ubuntu/ansible/deploy_argocd.yml
   hosts: all
   become: yes
   vars:
-    slack_webhook_url : "https://hooks.slack.com/services/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"
+    slack_webhook_url: "{{ lookup('env', 'SLACK_WEBHOOK_URL') }}"
   tasks:
     - name: Update apt cache
       apt:
@@ -312,35 +318,77 @@ cat <<EOF > /home/ubuntu/ansible/deploy_argocd.yml
           spec:
             type: LoadBalancer
 
-    - name: Wait for LoadBalancer to be ready
+    - name: Wait for ArgoCD server service and LoadBalancer to be ready
       kubernetes.core.k8s_info:
         kubeconfig: /home/ubuntu/.kube/config
         api_version: v1
         kind: Service
         name: argocd-server
         namespace: argocd
-      register: lb_service
-      until: lb_service.resources[0].status.loadBalancer.ingress is defined
+      register: argocd_service
+      until:
+        - argocd_service.resources is defined
+        - argocd_service.resources | length > 0
+        - argocd_service.resources[0].status is defined
+        - argocd_service.resources[0].status.loadBalancer is defined
+        - argocd_service.resources[0].status.loadBalancer.ingress is defined
+        - argocd_service.resources[0].status.loadBalancer.ingress | length > 0
+        - argocd_service.resources[0].status.loadBalancer.ingress[0].hostname is defined
+        - argocd_service.resources[0].status.loadBalancer.ingress[0].hostname != ""
       retries: 30
       delay: 20
+      delegate_to: "{{ groups['kube_control_plane'][0] }}"
+      run_once: true
 
-    - name: Get ArgoCD server external IP
-      shell: kubectl get svc argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
-      register: argocd_external_ip_result
-
-    - name: Set ArgoCD external IP fact
+    - name: Set ArgoCD server external hostname
       set_fact:
-        argocd_external_ip: "{{ argocd_external_ip_result.stdout }}"
+        argocd_external_hostname: "{{ argocd_service.resources[0].status.loadBalancer.ingress[0].hostname }}"
+      when: argocd_service.resources is defined and argocd_service.resources | length > 0
+
+    - name: Set ArgoCD access URL
+      set_fact:
+        argocd_access_url: "https://{{ argocd_external_hostname }}"
+      when:
+        - argocd_external_hostname is defined
+        - argocd_external_hostname != ""
+      delegate_to: "{{ groups['kube_control_plane'][0] }}"
+      run_once: true    
 
     - name: Get ArgoCD admin password
-      shell: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
-      register: argocd_password
+      shell: |
+        kubectl --kubeconfig=/home/ubuntu/.kube/config -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 --decode
+      register: argocd_admin_password_result
+      retries: 15
+      delay: 30
+      until: argocd_admin_password_result.rc == 0 and argocd_admin_password_result.stdout != ""
+      delegate_to: "{{ groups['kube_control_plane'][0] }}"
+      run_once: true
+      become: yes
+      become_user: ubuntu
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
 
-    - name: Display ArgoCD access information
+    - name: Set ArgoCD admin password fact
+      set_fact:
+        argocd_admin_password: "{{ argocd_admin_password_result.stdout }}"
+      when: argocd_admin_password_result.stdout is defined and argocd_admin_password_result.stdout != ""
+      delegate_to: "{{ groups['kube_control_plane'][0] }}"
+      run_once: true
+
+    - name: Verify ArgoCD admin password
       debug:
-        msg:
-          - "ArgoCD is accessible at: http://{{ argocd_external_ip }}"
-          - "Initial admin password: {{ argocd_password.stdout }}"
+        msg: "ArgoCD admin password: {{ argocd_admin_password | default('Not set') }}"
+      delegate_to: "{{ groups['kube_control_plane'][0] }}"
+      run_once: true
+
+    - name: Prepare Slack message
+      set_fact:
+        slack_message: |
+          ArgoCD has been successfully deployed!
+          Access URL: {{ argocd_access_url }}
+          Initial admin password: {{ argocd_admin_password | default('Password not available') }}
+      delegate_to: "{{ groups['kube_control_plane'][0] }}"
+      run_once: true
 
     - name: Send Slack notification
       uri:
@@ -348,11 +396,10 @@ cat <<EOF > /home/ubuntu/ansible/deploy_argocd.yml
         method: POST
         body_format: json
         body:
-          text: |
-            ArgoCD has been successfully deployed!
-            Access URL: http://{{ argocd_external_ip }}
-            Initial admin password: {{ argocd_password.stdout }}
-      when: inventory_hostname in groups['kube_control_plane'] and argocd_access_url is defined
+          text: "{{ slack_message }}"
+      register: slack_notification_result
+      delegate_to: "{{ groups['kube_control_plane'][0] }}"
+      run_once: true 
 EOF
 
 # 인벤토리 파일 내용 출력
