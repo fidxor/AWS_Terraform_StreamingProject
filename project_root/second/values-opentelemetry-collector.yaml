@@ -1,0 +1,101 @@
+image:
+  repository: otel/opentelemetry-collector-contrib
+  pullPolicy: IfNotPresent
+  tag: "0.100.0"
+mode: daemonset
+config:
+  receivers:
+    filelog:
+      include:
+        - /var/log/containers/*.log
+        - /var/log/pods/*/*.log
+      exclude:
+        - /var/log/containers/otel-collector*.log
+      start_at: beginning
+    hostmetrics:
+      collection_interval: 10s
+      scrapers:
+        cpu: {}
+        load: {}
+        memory: {}
+        disk: {}
+        filesystem: {}
+        network: {}
+    otlp:
+      protocols:
+        grpc: {}
+        http: {}
+  processors:
+    batch: {}
+    memory_limiter:
+      check_interval: 1s
+      limit_mib: 500
+      spike_limit_mib: 100
+  exporters:
+    logging:
+      loglevel: debug
+    prometheus:
+      endpoint: "0.0.0.0:8889"
+    otlp:
+      endpoint: "loki-gateway:80"
+      tls:
+        insecure: true
+  extensions:
+    health_check: {}
+  service:
+    extensions: [health_check]
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [logging, otlp]
+      metrics:
+        receivers: [hostmetrics, otlp]
+        processors: [memory_limiter, batch]
+        exporters: [logging, prometheus]
+      logs:
+        receivers: [filelog]
+        processors: [memory_limiter, batch]
+        exporters: [logging, otlp]
+
+extraEnvs:
+  - name: K8S_NODE_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: spec.nodeName
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 400Mi
+  requests:
+    cpu: 100m
+    memory: 200Mi
+
+extraVolumeMounts:
+  - name: rootfs
+    mountPath: /rootfs
+    readOnly: true
+  - name: disk
+    mountPath: /hostfs/dev/disk
+    readOnly: true
+  - name: sys
+    mountPath: /hostfs/sys
+    readOnly: true
+  - name: proc
+    mountPath: /hostfs/proc
+    readOnly: true
+
+extraVolumes:
+  - name: rootfs
+    hostPath:
+      path: /
+  - name: disk
+    hostPath:
+      path: /dev/disk
+  - name: sys
+    hostPath:
+      path: /sys
+  - name: proc
+    hostPath:
+      path: /proc
