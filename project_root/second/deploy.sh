@@ -4,7 +4,7 @@ set -e
 
 export AWS_PAGER=""
 
-CLUSTER_NAME="korea"
+CLUSTER_NAME="streaming-cluster"
 AWS_REGION="ap-northeast-2"  # 한국 리전으로 변경
 
 # kubeconfig 업데이트
