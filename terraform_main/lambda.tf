@@ -1,21 +1,12 @@
-terraform {
-  required_providers {
-    archive = {
-      source  = "hashicorp/archive"
-      version = "~> 2.2.0"
-    }
-  }
-}
-
 data "archive_file" "lambda_zip" {
   type        = "zip"
   output_path = "${path.module}/lambda_function.zip"
-
+  
   source {
     content  = file("${path.module}/lambda_function.py")
     filename = "lambda_function.py"
   }
-
+  
   source {
     content  = file("${path.module}/job.json")
     filename = "job.json"
@@ -31,7 +22,7 @@ resource "aws_lambda_function" "create_mediaconvert_job" {
   runtime          = "python3.11"
   timeout          = 30
   memory_size      = 256
-
+  
   environment {
     variables = {
       Application        = "VOD-HLS"
@@ -43,11 +34,11 @@ resource "aws_lambda_function" "create_mediaconvert_job" {
 }
 
 resource "aws_lambda_permission" "allow_s3" {
-  statement_id   = "AllowExecutionFromS3Bucket"
-  action         = "lambda:InvokeFunction"
-  function_name  = aws_lambda_function.create_mediaconvert_job.arn
-  principal      = "s3.amazonaws.com"
-  source_arn     = aws_s3_bucket.nonoinput.arn
+  statement_id  = "AllowExecutionFromS3Bucket"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.create_mediaconvert_job.arn
+  principal     = "s3.amazonaws.com"
+  source_arn    = aws_s3_bucket.nonoinput.arn
   source_account = "975049989858"
 }
 

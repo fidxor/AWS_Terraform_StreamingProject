@@ -1,27 +1,17 @@
 resource "aws_cloudfront_distribution" "nono_distribution" {
-  enabled         = true
-  is_ipv6_enabled = true
-  http_version    = "http2"
-  price_class     = "PriceClass_All"
+  enabled             = true
+  is_ipv6_enabled     = true
+  http_version        = "http2"
+  price_class         = "PriceClass_All"
 
   depends_on = [
     aws_lambda_function.create_mediaconvert_job,
-    aws_s3_bucket.nonooutput,
-    aws_s3_bucket.nonooutput_ca_central_1
+    aws_s3_bucket.nonooutput
   ]
 
   origin {
     domain_name = "nonooutput.s3.ap-northeast-2.amazonaws.com"
     origin_id   = "nonooutput-origin"
-
-    s3_origin_config {
-      origin_access_identity = aws_cloudfront_origin_access_identity.nono_oai.cloudfront_access_identity_path
-    }
-  }
-
-  origin {
-    domain_name = "nonooutput-ca-central-1.s3.ca-central-1.amazonaws.com"
-    origin_id   = "nonooutput-ca-central-1-origin"
 
     s3_origin_config {
       origin_access_identity = aws_cloudfront_origin_access_identity.nono_oai.cloudfront_access_identity_path
@@ -40,11 +30,10 @@ resource "aws_cloudfront_distribution" "nono_distribution" {
       }
     }
 
-    viewer_protocol_policy = "allow-all"
+    viewer_protocol_policy = "redirect-to-https"
     min_ttl                = 0
     default_ttl            = 3600
     max_ttl                = 86400
-    compress               = true
   }
 
   restrictions {
@@ -56,10 +45,8 @@ resource "aws_cloudfront_distribution" "nono_distribution" {
   viewer_certificate {
     cloudfront_default_certificate = true
   }
-
-  web_acl_id = null # WAF 비활성화
 }
 
 resource "aws_cloudfront_origin_access_identity" "nono_oai" {
-  comment = "OAI for nonooutput S3 bucket"
+  comment = "OAI for nonooutput bucket"
 }
