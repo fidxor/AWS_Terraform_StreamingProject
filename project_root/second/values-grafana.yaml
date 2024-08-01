@@ -3,7 +3,7 @@ adminPassword: admin  # 원하는 비밀번호로 변경하세요
 enabled: true
 persistence:
   enabled: true
-  storageClassName: "efs-sc"
+  storageClass: "efs-sc"
   accessModes: ["ReadWriteMany"]
   size: 10Gi
 securityContext:
