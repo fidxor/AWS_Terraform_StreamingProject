@@ -56,7 +56,13 @@ singleBinary:
 persistence:
   enabled: true
   size: 10Gi
-  storageClassName: "ebs-sc"  # EBS CSI 드라이버용 StorageClass로 변경
+  storageClassName: "efs-sc"  # EBS CSI 드라이버용 StorageClass로 변경
+
+securityContext:
+  fsGroup: 10001
+  runAsGroup: 10001
+  runAsNonRoot: true
+  runAsUser: 10001
 
 serviceAccount:
   create: true

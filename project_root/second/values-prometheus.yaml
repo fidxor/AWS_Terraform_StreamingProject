@@ -1,10 +1,13 @@
+global:
+  scrape_interval: 15s
+
 server:
-  global:
-    scrape_interval: 15s
   persistentVolume:
     enabled: true
     size: 10Gi
-    storageClassName: "ebs-sc"  # EBS CSI 드라이버용 StorageClass로 변경
+    storageClass: "efs-sc"
+    accessModes:
+      - ReadWriteMany
   resources:
     requests:
       cpu: 200m
@@ -17,7 +20,9 @@ alertmanager:
   persistentVolume:
     enabled: true
     size: 2Gi
-    storageClassName: "ebs-sc"  # EBS CSI 드라이버용 StorageClass로 변경
+    storageClass: "efs-sc"
+    accessModes:
+      - ReadWriteMany
   resources:
     requests:
       cpu: 100m
@@ -25,6 +30,11 @@ alertmanager:
     limits:
       cpu: 200m
       memory: 256Mi
+
+# Prometheus 서버와 Alertmanager가 EFS를 사용할 수 있도록 securityContext 추가
+commonSecurityContext:
+  runAsUser: 65534  # nobody 사용자
+  fsGroup: 65534    # nobody 그룹
 
 extraScrapeConfigs: |
   - job_name: 'opentelemetry-collector'
@@ -37,3 +47,7 @@ extraScrapeConfigs: |
       - source_labels: [__meta_kubernetes_pod_container_port_number]
         regex: '8889'
         action: keep
+
+# 스토리지 프로비저닝 문제를 방지하기 위해 추가
+storageClass:
+  name: efs-sc
