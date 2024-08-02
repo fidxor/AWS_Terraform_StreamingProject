@@ -65,10 +65,38 @@ resource "aws_instance" "admin_server" {
   key_name      = aws_key_pair.eks_key_pair.key_name
   subnet_id     = aws_subnet.subnet_seoul[0].id
 
+  iam_instance_profile = aws_iam_instance_profile.admin_ec2_profile.name
+
   tags = {
     Name = "Admin-server"
   }
 
   # Use the newly created security group
   vpc_security_group_ids = [aws_security_group.admin_server_sg.id]
+}
+
+resource "aws_iam_role" "admin_ec2_role" {
+  name = "admin-ec2-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "admin_ec2_rds_policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonRDSFullAccess"
+  role       = aws_iam_role.admin_ec2_role.name
+}
+
+resource "aws_iam_instance_profile" "admin_ec2_profile" {
+  name = "admin-ec2-profile"
+  role = aws_iam_role.admin_ec2_role.name
 }

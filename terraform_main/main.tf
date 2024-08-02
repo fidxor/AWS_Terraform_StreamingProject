@@ -60,6 +60,36 @@ provider "kubernetes" {
   }
 }
 
+# EKS 관리자 정책 생성
+resource "aws_iam_policy" "eks_admin_policy" {
+  name        = "EKSAdminPolicy-${random_string.suffix.result}"
+  path        = "/"
+  description = "Comprehensive admin policy for EKS and related services including EFS"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = [
+          "eks:*",
+          "ec2:*",
+          "elasticfilesystem:*",
+          "iam:*",
+          "kms:*",
+          "s3:*",
+          "autoscaling:*",
+          "elasticloadbalancing:*",
+          "cloudwatch:*",
+          "logs:*",
+          "cloudformation:*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # VPC 생성 (한국)
 resource "aws_vpc" "vpc_seoul" {
   provider             = aws.seoul
@@ -280,6 +310,125 @@ resource "aws_iam_role" "eks_node_group_role" {
       }
     ]
   })
+
+  # 역할 삭제 전 연결된 정책 강제 분리
+  force_detach_policies = true
+}
+
+# 노드 그룹에 EBS 관련 권한 생성
+resource "aws_iam_policy" "eks_node_group_ebs_policy" {
+  name        = "EKSNodeGroupEBSPolicy-${random_string.suffix.result}"
+  path        = "/"
+  description = "EBS policy for EKS node group"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:CreateSnapshot",
+          "ec2:AttachVolume",
+          "ec2:DetachVolume",
+          "ec2:ModifyVolume",
+          "ec2:DescribeAvailabilityZones",
+          "ec2:DescribeInstances",
+          "ec2:DescribeSnapshots",
+          "ec2:DescribeTags",
+          "ec2:DescribeVolumes",
+          "ec2:DescribeVolumesModifications"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = ["ec2:CreateTags"]
+        Resource = [
+          "arn:aws:ec2:*:*:volume/*",
+          "arn:aws:ec2:*:*:snapshot/*"
+        ]
+        Condition = {
+          StringEquals = {
+            "ec2:CreateAction" = ["CreateVolume", "CreateSnapshot"]
+          }
+        }
+      },
+      {
+        Effect = "Allow"
+        Action = ["ec2:DeleteTags"]
+        Resource = [
+          "arn:aws:ec2:*:*:volume/*",
+          "arn:aws:ec2:*:*:snapshot/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = ["ec2:CreateVolume"]
+        Resource = "*"
+        Condition = {
+          StringLike = {
+            "aws:RequestTag/ebs.csi.aws.com/cluster" = "true"
+          }
+        }
+      },
+      {
+        Effect = "Allow"
+        Action = ["ec2:CreateVolume"]
+        Resource = "*"
+        Condition = {
+          StringLike = {
+            "aws:RequestTag/CSIVolumeName" = "*"
+          }
+        }
+      },
+      {
+        Effect = "Allow"
+        Action = ["ec2:DeleteVolume"]
+        Resource = "*"
+        Condition = {
+          StringLike = {
+            "ec2:ResourceTag/ebs.csi.aws.com/cluster" = "true"
+          }
+        }
+      },
+      {
+        Effect = "Allow"
+        Action = ["ec2:DeleteVolume"]
+        Resource = "*"
+        Condition = {
+          StringLike = {
+            "ec2:ResourceTag/CSIVolumeName" = "*"
+          }
+        }
+      },
+      {
+        Effect = "Allow"
+        Action = ["ec2:DeleteSnapshot"]
+        Resource = "*"
+        Condition = {
+          StringLike = {
+            "ec2:ResourceTag/CSIVolumeSnapshotName" = "*"
+          }
+        }
+      },
+      {
+        Effect = "Allow"
+        Action = ["ec2:DeleteSnapshot"]
+        Resource = "*"
+        Condition = {
+          StringLike = {
+            "ec2:ResourceTag/ebs.csi.aws.com/cluster" = "true"
+          }
+        }
+      }
+    ]
+  })
+}
+
+# 새 정책을 EKS 노드 그룹 역할에 연결
+resource "aws_iam_role_policy_attachment" "eks_node_group_ebs_policy_attachment" {
+  policy_arn = aws_iam_policy.eks_node_group_ebs_policy.arn
+  role       = aws_iam_role.eks_node_group_role.name
 }
 
 # 노드 그룹 정책 연결
@@ -300,6 +449,25 @@ resource "aws_iam_role_policy_attachment" "eks_node_efs_policy" {
   role       = aws_iam_role.eks_node_group_role.name
 }
 
+resource "aws_security_group" "eks_nodes_sg" {
+  provider    = aws.seoul
+  name        = "eks-nodes-sg"
+  description = "Security group for all nodes in the EKS cluster"
+  vpc_id      = aws_vpc.vpc_seoul.id
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "eks-nodes-sg"
+    "kubernetes.io/cluster/${aws_eks_cluster.streaming_cluster.name}" = "owned"
+  }
+}
+
 # 노드 그룹 생성 (한국)
 resource "aws_eks_node_group" "streaming_node_group" {
   provider         = aws.seoul
@@ -310,7 +478,7 @@ resource "aws_eks_node_group" "streaming_node_group" {
 
   remote_access {
     ec2_ssh_key               = aws_key_pair.eks_key_pair.key_name
-    source_security_group_ids = [aws_security_group.eks_sg.id]
+    source_security_group_ids = [aws_security_group.eks_nodes_sg.id]
   }
 
   scaling_config {
@@ -342,15 +510,47 @@ resource "aws_security_group" "eks_sg" {
   description = "Security group for EKS cluster"
   vpc_id      = aws_vpc.vpc_seoul.id
 
-  dynamic "ingress" {
-    for_each = [22, 80, 3000, 3100, 9090]
-    content {
-      from_port   = ingress.value
-      to_port     = ingress.value
-      protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
-    }
-  }
+  ingress {
+  from_port   = 22
+  to_port     = 22
+  protocol    = "tcp"
+  cidr_blocks = ["0.0.0.0/0"]
+}
+
+ingress {
+  from_port   = 80
+  to_port     = 80
+  protocol    = "tcp"
+  cidr_blocks = ["0.0.0.0/0"]
+}
+
+ingress {
+  from_port   = 443
+  to_port     = 443
+  protocol    = "tcp"
+  cidr_blocks = ["0.0.0.0/0"]
+}
+
+ingress {
+  from_port   = 3000
+  to_port     = 3000
+  protocol    = "tcp"
+  cidr_blocks = ["0.0.0.0/0"]
+}
+
+ingress {
+  from_port   = 3100
+  to_port     = 3100
+  protocol    = "tcp"
+  cidr_blocks = ["0.0.0.0/0"]
+}
+
+ingress {
+  from_port   = 9090
+  to_port     = 9090
+  protocol    = "tcp"
+  cidr_blocks = ["0.0.0.0/0"]
+}
 
   egress {
     from_port   = 0
@@ -728,6 +928,63 @@ resource "aws_iam_role_policy_attachment" "efs_policy_attachment" {
   provider   = aws.seoul
   policy_arn = aws_iam_policy.efs_access_policy.arn
   role       = aws_iam_role.eks_node_group_role.name
+}
+
+resource "aws_iam_role_policy_attachment" "eks_node_rds_policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonRDSFullAccess"
+  role       = aws_iam_role.eks_node_group_role.name
+}
+
+
+# EKS 클러스터 보안 그룹 ID 가져오기
+data "aws_eks_cluster" "eks" {
+  name = aws_eks_cluster.streaming_cluster.name
+}
+
+# EKS 노드 그룹 보안 그룹 ID 가져오기
+data "aws_eks_node_group" "node_group" {
+  cluster_name    = aws_eks_cluster.streaming_cluster.name
+  node_group_name = aws_eks_node_group.streaming_node_group.node_group_name
+}
+
+# EKS 클러스터 보안 그룹에 RDS 접근 규칙 추가
+resource "aws_security_group_rule" "eks_cluster_to_rds" {
+  type                     = "egress"
+  from_port                = 3306
+  to_port                  = 3306
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.rds_sg.id
+  security_group_id        = data.aws_eks_cluster.eks.vpc_config[0].cluster_security_group_id
+}
+
+# EKS 노드 그룹 보안 그룹에 RDS 접근 규칙 추가
+resource "aws_security_group_rule" "eks_nodes_to_rds" {
+  type                     = "egress"
+  from_port                = 3306
+  to_port                  = 3306
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.rds_sg.id
+  security_group_id        = data.aws_eks_node_group.node_group.resources[0].remote_access_security_group_id
+}
+
+# RDS 보안 그룹에 EKS 클러스터로부터의 인바운드 규칙 추가
+resource "aws_security_group_rule" "rds_from_eks_cluster" {
+  type                     = "ingress"
+  from_port                = 3306
+  to_port                  = 3306
+  protocol                 = "tcp"
+  source_security_group_id = data.aws_eks_cluster.eks.vpc_config[0].cluster_security_group_id
+  security_group_id        = aws_security_group.rds_sg.id
+}
+
+# RDS 보안 그룹에 EKS 노드 그룹으로부터의 인바운드 규칙 추가
+resource "aws_security_group_rule" "rds_from_eks_nodes" {
+  type                     = "ingress"
+  from_port                = 3306
+  to_port                  = 3306
+  protocol                 = "tcp"
+  source_security_group_id = data.aws_eks_node_group.node_group.resources[0].remote_access_security_group_id
+  security_group_id        = aws_security_group.rds_sg.id
 }
 
 # SSH 명령어 출력 (키 파일 경로 업데이트)

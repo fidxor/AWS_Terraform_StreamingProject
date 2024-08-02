@@ -9,7 +9,11 @@ resource "aws_security_group" "rds_sg" {
     from_port       = 3306
     to_port         = 3306
     protocol        = "tcp"
-    security_groups = [aws_security_group.eks_sg.id, aws_security_group.admin_server_sg.id]
+    security_groups = [
+      aws_security_group.eks_sg.id,
+      aws_security_group.admin_server_sg.id,
+      aws_security_group.eks_nodes_sg.id
+    ]
   }
 
   egress {
