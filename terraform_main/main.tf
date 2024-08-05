@@ -60,36 +60,6 @@ provider "kubernetes" {
   }
 }
 
-# EKS 관리자 정책 생성
-resource "aws_iam_policy" "eks_admin_policy" {
-  name        = "EKSAdminPolicy-${random_string.suffix.result}"
-  path        = "/"
-  description = "Comprehensive admin policy for EKS and related services including EFS"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = [
-          "eks:*",
-          "ec2:*",
-          "elasticfilesystem:*",
-          "iam:*",
-          "kms:*",
-          "s3:*",
-          "autoscaling:*",
-          "elasticloadbalancing:*",
-          "cloudwatch:*",
-          "logs:*",
-          "cloudformation:*"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
-}
-
 # VPC 생성 (한국)
 resource "aws_vpc" "vpc_seoul" {
   provider             = aws.seoul
@@ -219,49 +189,6 @@ resource "aws_eks_cluster" "streaming_cluster" {
   ]
 }
 
-# EKS 클러스터가 완전히 생성될 때까지 기다림
-#resource "null_resource" "wait_for_nodes" {
-#  depends_on = [aws_eks_node_group.streaming_node_group]
-#
-#  provisioner "local-exec" {
-#    interpreter = ["/bin/bash", "-c"]
-#    command = <<-EOF
-#      #!/bin/bash
-#      set -e
-#
-#      CLUSTER_NAME="${aws_eks_cluster.streaming_cluster.name}"
-#      REGION="${data.aws_region.current.name}"
-#
-#      echo "Updating kubeconfig for EKS cluster: $CLUSTER_NAME in region: $REGION"
-#      aws eks --region "$REGION" update-kubeconfig --name "$CLUSTER_NAME"
-#
-#      echo "Getting correct context"
-#      CONTEXT=$(kubectl config get-contexts -o name | grep "$CLUSTER_NAME")
-#
-#      echo "Using context: $CONTEXT"
-#      kubectl config use-context "$CONTEXT"
-#
-#      echo "Waiting for at least one node to be ready"
-#      while ! kubectl --context "$CONTEXT" get nodes --no-headers 2>/dev/null | grep -q " Ready"; do
-#        echo "Waiting for EKS nodes to be ready..."
-#        sleep 10
-#      done
-#
-#      DESIRED_COUNT=${aws_eks_node_group.streaming_node_group.scaling_config[0].desired_size}
-#      echo "Waiting for all $DESIRED_COUNT nodes to be ready"
-#      while true; do
-#        READY_COUNT=$(kubectl --context "$CONTEXT" get nodes --no-headers 2>/dev/null | grep " Ready" | wc -l)
-#        if [ "$READY_COUNT" -eq "$DESIRED_COUNT" ]; then
-#          echo "All $DESIRED_COUNT nodes are ready"
-#          break
-#        fi
-#        echo "Waiting for all nodes to be ready. Ready: $READY_COUNT, Desired: $DESIRED_COUNT"
-#        sleep 10
-#      done
-#    EOF
-#  }
-#}
-
 # KMS 키 생성 (OIDC 프로바이더 활성화를 위해 필요)
 resource "aws_kms_key" "eks_secrets" {
   provider            = aws.seoul
@@ -275,24 +202,6 @@ resource "aws_iam_openid_connect_provider" "eks" {
   thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint]
   url             = aws_eks_cluster.streaming_cluster.identity[0].oidc[0].issuer
 }
-
-#resource "aws_eks_addon" "coredns" {
-#  cluster_name = aws_eks_cluster.streaming_cluster.name
-#  addon_name   = "coredns"
-#  depends_on   = [null_resource.wait_for_nodes]
-#}
-#
-#resource "aws_eks_addon" "kube_proxy" {
-#  cluster_name = aws_eks_cluster.streaming_cluster.name
-#  addon_name   = "kube-proxy"
-#  depends_on   = [null_resource.wait_for_nodes]
-#}
-#
-#resource "aws_eks_addon" "vpc_cni" {
-#  cluster_name = aws_eks_cluster.streaming_cluster.name
-#  addon_name   = "vpc-cni"
-#  depends_on   = [null_resource.wait_for_nodes]
-#}
 
 # 노드 그룹 역할 생성
 resource "aws_iam_role" "eks_node_group_role" {
@@ -315,122 +224,6 @@ resource "aws_iam_role" "eks_node_group_role" {
   force_detach_policies = true
 }
 
-# 노드 그룹에 EBS 관련 권한 생성
-resource "aws_iam_policy" "eks_node_group_ebs_policy" {
-  name        = "EKSNodeGroupEBSPolicy-${random_string.suffix.result}"
-  path        = "/"
-  description = "EBS policy for EKS node group"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "ec2:CreateSnapshot",
-          "ec2:AttachVolume",
-          "ec2:DetachVolume",
-          "ec2:ModifyVolume",
-          "ec2:DescribeAvailabilityZones",
-          "ec2:DescribeInstances",
-          "ec2:DescribeSnapshots",
-          "ec2:DescribeTags",
-          "ec2:DescribeVolumes",
-          "ec2:DescribeVolumesModifications"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
-        Action = ["ec2:CreateTags"]
-        Resource = [
-          "arn:aws:ec2:*:*:volume/*",
-          "arn:aws:ec2:*:*:snapshot/*"
-        ]
-        Condition = {
-          StringEquals = {
-            "ec2:CreateAction" = ["CreateVolume", "CreateSnapshot"]
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = ["ec2:DeleteTags"]
-        Resource = [
-          "arn:aws:ec2:*:*:volume/*",
-          "arn:aws:ec2:*:*:snapshot/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = ["ec2:CreateVolume"]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "aws:RequestTag/ebs.csi.aws.com/cluster" = "true"
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = ["ec2:CreateVolume"]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "aws:RequestTag/CSIVolumeName" = "*"
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = ["ec2:DeleteVolume"]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "ec2:ResourceTag/ebs.csi.aws.com/cluster" = "true"
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = ["ec2:DeleteVolume"]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "ec2:ResourceTag/CSIVolumeName" = "*"
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = ["ec2:DeleteSnapshot"]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "ec2:ResourceTag/CSIVolumeSnapshotName" = "*"
-          }
-        }
-      },
-      {
-        Effect = "Allow"
-        Action = ["ec2:DeleteSnapshot"]
-        Resource = "*"
-        Condition = {
-          StringLike = {
-            "ec2:ResourceTag/ebs.csi.aws.com/cluster" = "true"
-          }
-        }
-      }
-    ]
-  })
-}
-
-# 새 정책을 EKS 노드 그룹 역할에 연결
-resource "aws_iam_role_policy_attachment" "eks_node_group_ebs_policy_attachment" {
-  policy_arn = aws_iam_policy.eks_node_group_ebs_policy.arn
-  role       = aws_iam_role.eks_node_group_role.name
-}
-
 # 노드 그룹 정책 연결
 resource "aws_iam_role_policy_attachment" "eks_node_group_policies" {
   for_each = toset([
@@ -446,6 +239,129 @@ resource "aws_iam_role_policy_attachment" "eks_node_group_policies" {
 resource "aws_iam_role_policy_attachment" "eks_node_efs_policy" {
   provider   = aws.seoul
   policy_arn = aws_iam_policy.efs_access_policy.arn
+  role       = aws_iam_role.eks_node_group_role.name
+}
+
+# 노드 그룹에서 EFS에 접근하기 위한 정책 성정
+resource "aws_iam_policy" "eks_node_additional_policy" {
+  name        = "eks-node-additional-policy-${random_string.suffix.result}"
+  path        = "/"
+  description = "추가 EKS 노드 그룹 정책"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:AttachVolume",
+          "ec2:CreateSnapshot",
+          "ec2:CreateTags",
+          "ec2:CreateVolume",
+          "ec2:DeleteSnapshot",
+          "ec2:DeleteTags",
+          "ec2:DeleteVolume",
+          "ec2:DescribeInstances",
+          "ec2:DescribeSnapshots",
+          "ec2:DescribeTags",
+          "ec2:DescribeVolumes",
+          "ec2:DetachVolume"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "elasticfilesystem:DescribeAccessPoints",
+          "elasticfilesystem:DescribeFileSystems",
+          "elasticfilesystem:DescribeMountTargets",
+          "ec2:DescribeAvailabilityZones"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "elasticfilesystem:CreateAccessPoint"
+        ]
+        Resource = "*"
+        Condition = {
+          StringLike = {
+            "aws:RequestTag/efs.csi.aws.com/cluster" = "true"
+          }
+        }
+      },
+      {
+        Effect = "Allow"
+        Action = "elasticfilesystem:DeleteAccessPoint"
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:ResourceTag/efs.csi.aws.com/cluster" = "true"
+          }
+        }
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "elasticloadbalancing:AddTags",
+          "elasticloadbalancing:CreateListener",
+          "elasticloadbalancing:CreateLoadBalancer",
+          "elasticloadbalancing:CreateRule",
+          "elasticloadbalancing:CreateTargetGroup",
+          "elasticloadbalancing:DeleteListener",
+          "elasticloadbalancing:DeleteLoadBalancer",
+          "elasticloadbalancing:DeleteRule",
+          "elasticloadbalancing:DeleteTargetGroup",
+          "elasticloadbalancing:DeregisterTargets",
+          "elasticloadbalancing:DescribeListeners",
+          "elasticloadbalancing:DescribeLoadBalancers",
+          "elasticloadbalancing:DescribeRules",
+          "elasticloadbalancing:DescribeTargetGroups",
+          "elasticloadbalancing:DescribeTargetHealth",
+          "elasticloadbalancing:ModifyListener",
+          "elasticloadbalancing:ModifyLoadBalancerAttributes",
+          "elasticloadbalancing:ModifyRule",
+          "elasticloadbalancing:ModifyTargetGroup",
+          "elasticloadbalancing:RegisterTargets",
+          "elasticloadbalancing:RemoveTags",
+          "elasticloadbalancing:SetIpAddressType",
+          "elasticloadbalancing:SetSecurityGroups",
+          "elasticloadbalancing:SetSubnets"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:CreateServiceLinkedRole"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "iam:AWSServiceName" = "elasticloadbalancing.amazonaws.com"
+          }
+        }
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:DescribeKey",
+          "kms:CreateGrant",
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:GenerateDataKey*",
+          "kms:ReEncrypt*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# 2. 새로 생성한 정책을 EKS 노드 그룹 역할에 연결
+resource "aws_iam_role_policy_attachment" "eks_node_additional_policy_attachment" {
+  policy_arn = aws_iam_policy.eks_node_additional_policy.arn
   role       = aws_iam_role.eks_node_group_role.name
 }
 
@@ -570,10 +486,6 @@ resource "aws_security_group_rule" "allow_efs_outbound" {
   security_group_id        = aws_security_group.eks_sg.id
 }
 
-# eks 접근용 ec2 생성
-
-
-
 resource "aws_security_group" "ec2_sg" {
   provider    = aws.seoul
   name        = "ec2-sg"
@@ -603,7 +515,7 @@ resource "aws_security_group" "ec2_sg" {
 resource "aws_instance" "eks_access" {
   provider               = aws.seoul
   ami                    = "ami-056a29f2eddc40520"  # Ubuntu 22.04 LTS (ap-northeast-2)
-  instance_type          = "t2.micro"
+  instance_type          = "t2.medium"
   key_name               = aws_key_pair.eks_key_pair.key_name
   vpc_security_group_ids = [aws_security_group.ec2_sg.id]
   subnet_id              = aws_subnet.subnet_seoul[0].id
@@ -636,17 +548,6 @@ resource "aws_instance" "eks_access" {
     Name = "EKS Access Instance"
   }
 }
-
-# EC2 인스턴스에 EIP 연결
-#resource "aws_eip" "eks_access" {
-#  provider = aws.seoul
-#  instance = aws_instance.eks_access.id
-#  domain   = "vpc"
-#
-#  tags = {
-#    Name = "EKS Access EIP"
-#  }
-#}
 
 # EKS 클러스터 접근을 위한 IAM 역할
 resource "aws_iam_role" "eks_access_role" {
