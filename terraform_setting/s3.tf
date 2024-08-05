@@ -8,37 +8,17 @@ provider "aws" {
   region = "us-east-1"  # 미국 동부 (버지니아 북부)
 }
 
-# 기존 S3 버킷 확인
-data "aws_s3_bucket" "existing_nonoinput" {
-  bucket = "nonoinput"
-  count  = 1
-}
-
-data "aws_s3_bucket" "existing_nonooutput" {
-  bucket = "nonooutput"
-  count  = 1
-}
-
-data "aws_s3_bucket" "existing_americanono2" {
-  provider = aws.us_east_1
-  bucket   = "americanono2"
-  count    = 1
-}
-
-# S3 버킷 생성 (존재하지 않는 경우에만)
+# S3 버킷 생성
 resource "aws_s3_bucket" "nonoinput" {
-  count  = length(data.aws_s3_bucket.existing_nonoinput) == 0 ? 1 : 0
   bucket = "nonoinput"
 }
 
 resource "aws_s3_bucket" "nonooutput" {
-  count  = length(data.aws_s3_bucket.existing_nonooutput) == 0 ? 1 : 0
   bucket = "nonooutput"
 }
 
 resource "aws_s3_bucket" "americanono2" {
   provider = aws.us_east_1
-  count    = length(data.aws_s3_bucket.existing_americanono2) == 0 ? 1 : 0
   bucket   = "americanono2"
 }
 
@@ -55,11 +35,10 @@ locals {
     bucket_key_enabled      = true
   }
   
-  # 기존 버킷과 새로 생성된 버킷을 모두 포함
   all_buckets = {
-    nonoinput    = length(data.aws_s3_bucket.existing_nonoinput) > 0 ? data.aws_s3_bucket.existing_nonoinput[0].id : (length(aws_s3_bucket.nonoinput) > 0 ? aws_s3_bucket.nonoinput[0].id : null)
-    nonooutput   = length(data.aws_s3_bucket.existing_nonooutput) > 0 ? data.aws_s3_bucket.existing_nonooutput[0].id : (length(aws_s3_bucket.nonooutput) > 0 ? aws_s3_bucket.nonooutput[0].id : null)
-    americanono2 = length(data.aws_s3_bucket.existing_americanono2) > 0 ? data.aws_s3_bucket.existing_americanono2[0].id : (length(aws_s3_bucket.americanono2) > 0 ? aws_s3_bucket.americanono2[0].id : null)
+    nonoinput    = aws_s3_bucket.nonoinput.id
+    nonooutput   = aws_s3_bucket.nonooutput.id
+    americanono2 = aws_s3_bucket.americanono2.id
   }
 }
 
