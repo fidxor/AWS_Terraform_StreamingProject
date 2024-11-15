@@ -13,8 +13,7 @@
 ||- SCM : git, github
 ||- CI/CD : GithubAction, Dockerhub, ArgoCD
 ||- Web : django |
-| **담당 업무** | terraform을 활용한 AWS 인프라 Auto provisoning |
-| github 링크 | [https://github.com/bang8542/24kng_terraform](https://github.com/bang8542/24kng_terraform) |
+
 
 ### 프로젝트 전체 아키텍처
 
