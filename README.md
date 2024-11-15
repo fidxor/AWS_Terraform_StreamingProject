@@ -8,11 +8,11 @@
 | **개발 기간** | 2024.07 ~ 2024.08 |
 | **개발 인원** | 5명 |
 | **사용 기술** | - IDE : VSCode
-- 프로비저닝 : terraform
-- AWS : EC2, S3, RDS, Lambda, MediaConvert, CloudFront, EKS, Route53
-- SCM : git, github
-- CI/CD : GithubAction, Dockerhub, ArgoCD
-- Web : django |
+||- 프로비저닝 : terraform
+||- AWS : EC2, S3, RDS, Lambda, MediaConvert, CloudFront, EKS, Route53
+||- SCM : git, github
+||- CI/CD : GithubAction, Dockerhub, ArgoCD
+||- Web : django |
 | **담당 업무** | terraform을 활용한 AWS 인프라 Auto provisoning |
 | github 링크 | [https://github.com/bang8542/24kng_terraform](https://github.com/bang8542/24kng_terraform) |
 
