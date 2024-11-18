@@ -25,4 +25,4 @@
 
 ---
 
-![image.png](https://github.com/user-attachments/assets/5cc73d48-d6a5-4f1f-8270-aa7e70141d38)
+![image.png](https://github.com/user-attachments/assets/a6c4eb09-1d9d-48e2-92c2-15efeb4a0968)
